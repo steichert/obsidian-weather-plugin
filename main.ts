@@ -1,134 +1,139 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import queryString from 'query-string';
+import fetch from 'node-fetch';
+import { FeedbackResponse } from 'api/response/FeedbackResponse';
+const moment = require('moment');
 
-// Remember to rename these classes and interfaces!
+const getTimelineURL = "https://api.tomorrow.io/v4/timelines";
 
-interface MyPluginSettings {
-	mySetting: string;
+const fields = [
+  "precipitationIntensity",
+  "precipitationType",
+  "windSpeed",
+  "windGust",
+  "windDirection",
+  "temperature",
+  "temperatureApparent",
+  "cloudCover",
+  "cloudBase",
+  "cloudCeiling",
+  "weatherCode",
+];
+
+interface WeatherSnippetSettings {
+    apiKey: string;
+    units: string;
+    timezone: string;
+    longitude: string;
+    latitude: string;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+const DEFAULT_SETTINGS: WeatherSnippetSettings = {
+    apiKey: '',
+    units: 'metric',
+    timezone: 'Africa/Johannesburg',
+    longitude: '27.981751405133167',
+    latitude: '-26.114842711916268'
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class WeatherSnippetPlugin extends Plugin {
+    settings: WeatherSnippetSettings;
 
-	async onload() {
-		await this.loadSettings();
+    async onload() {
+        await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+        this.addRibbonIcon('sun', 'Insert weather snippet', (evt: MouseEvent) => {
+            
+        });
+        
+        this.addSettingTab(new WeatherSnippetSettingTab(this.app, this));
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+        this.addCommand({
+            id: "insert-current-weather",
+            name: "Insert current weather",
+            editorCallback: (editor: Editor) => {
+                const now = moment.utc();
+                const startTime = moment.utc(now).add(0, 'minutes').toISOString();
+                const endTime = moment.utc(now).add(1, 'days').toISOString();
+	
+                const getTimelineParameters = queryString.stringify({
+                    'apikey': this.settings.apiKey,
+                    'location': [this.settings.latitude, this.settings.latitude],
+                    'fields': fields,
+                    'units': this.settings.units,
+                    'timesteps': ['current'],
+                    'startTime': startTime,
+                    'endTime': endTime,
+                    'timezone': this.settings.timezone,
+                }, {arrayFormat: 'comma'});
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+                fetch(getTimelineURL + '?' + getTimelineParameters, {method: 'GET', compress: true})
+                    .then((result: any) => result.json())
+                    .then((response: FeedbackResponse) => {
+                        editor.replaceRange(
+                            this.constructHtmlOutput(response),
+                            editor.getCursor()
+                        );
+                    })
+                    .catch((error: any) => console.error('error: ' + error));               
+            },
+        });
+    }
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
+    onunload() {
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+    }
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+    async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
+    async saveSettings() {
+        await this.saveData(this.settings);
+    }
 
-	onunload() {
+	constructHtmlOutput(response: FeedbackResponse) {
+		let weatherCode = response.data.timelines[0].intervals[0].values.weatherCode;
+		let temperature = response.data.timelines[0].intervals[0].values.temperature;
 
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
+		let output = `<div><span src="../icons/png/10000_clear_large.png" alt="weather icon"><img></span><h3>Temperature: ${temperature}</h3><sub>Powered by Tomorrow.io</sub></div>`;
+		
+		return output;
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+class WeatherSnippetSettingTab extends PluginSettingTab {
+    plugin: WeatherSnippetPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+    constructor(app: App, plugin: WeatherSnippetPlugin) {
+        super(app, plugin);
+        this.plugin = plugin;
+    }
 
-	display(): void {
-		const {containerEl} = this;
+    display(): void {
+        const {containerEl} = this;
+        containerEl.empty();
 
-		containerEl.empty();
+        this.buildSetting(containerEl, 'API Key', 'Tomorrow.io API Key', 'Enter your api key', this.plugin.settings.apiKey);
+        this.buildSetting(containerEl, 'Units', 'Metric or imperial', 'Enter units', this.plugin.settings.units);
 
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+        // TODO: Fetch current location dynamically
+        this.buildSetting(containerEl, 'Timezone', 'Location timezone', 'Enter timezone', this.plugin.settings.timezone);
+        this.buildSetting(containerEl, 'Latitude', 'Latitude coordinate', 'Enter location latitude', this.plugin.settings.latitude);
+        this.buildSetting(containerEl, 'Longitude', 'Longitude coordinate', 'Enter location longitude', this.plugin.settings.longitude);
+    }
+
+    private buildSetting(element: any, name: string, description: string, placeholder: string, targetName: string): void {
+        new Setting(element)
+            .setName(name)
+            .setDesc(description)
+            .addText(text => text
+                .setPlaceholder(placeholder)
+                .setValue(this.plugin.settings[targetName as keyof typeof this.plugin.settings])
+                .onChange(async (value) => {
+                    this.plugin.settings[targetName as keyof typeof this.plugin.settings] = value;
+                    await this.plugin.saveSettings();
+                }));
+    }
 }
+
