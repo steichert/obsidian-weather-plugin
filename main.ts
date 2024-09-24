@@ -94,12 +94,18 @@ export default class WeatherSnippetPlugin extends Plugin {
 
 	constructHtmlOutput(response: FeedbackResponse) {
 		let weatherCode = response.data.timelines[0].intervals[0].values.weatherCode;
-		let temperature = response.data.timelines[0].intervals[0].values.temperature;
+        let weatherIconUrl = this.getWeatherIconUrl(weatherCode);
 
-		let output = `<div><span src="../icons/png/10000_clear_large.png" alt="weather icon"><img></span><h3>Temperature: ${temperature}</h3><sub>Powered by Tomorrow.io</sub></div>`;
+		let temperature = response.data.timelines[0].intervals[0].values.temperatureApparent;
+
+		let output = `<div><span><img src="${weatherIconUrl}" alt="weather icon"></span><h3>Temperature: ${temperature}</h3><sub>Powered by Tomorrow.io</sub></div>`;
 		
 		return output;
 	}
+
+    getWeatherIconUrl(weatherCode: number) {
+        return `https://raw.githubusercontent.com/steichert/obsidian-weather-plugin/master/icons/png/${weatherCode}_lg.png`;
+    }
 }
 
 class WeatherSnippetSettingTab extends PluginSettingTab {
